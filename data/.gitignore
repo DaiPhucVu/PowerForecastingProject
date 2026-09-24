@@ -1,0 +1,5 @@
+# Raw and derived data files are NOT committed. Re-download them using manifest.json.
+*
+!.gitignore
+!manifest.json
+!data_dictionary.md
