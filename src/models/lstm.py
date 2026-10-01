@@ -3,13 +3,17 @@
 Run from the repo root:
     python -m src.models.lstm
 
-It uses the team's data and protocol from notebooks/household_energy_model.ipynb, so its numbers can be
-put in the same table as the notebook's models:
-- Data: the team's daily table (src/team_daily.py): days with under 90% of minutes are dropped.
-- Days scored: the same rows the notebook's feature table keeps (it drops the first 28 rows).
-- Split: by row, in time order. First 80% is train+val, last 20% is test; val is the last 20% of train+val.
+Build the daily table first:
+    python -m src.build_daily --raw data/household_power_consumption.txt
+
+It uses the team's data and protocol from src/forecast_pipeline.py, so its numbers can be put in the same
+table as the pipeline's models:
+- Data: data/household_daily.csv from src/build_daily.py (days with under 90% of minutes are dropped).
+- Days scored and split: taken straight from the pipeline (make_features + chrono_split), so the LSTM's
+  train, val and test days are exactly the tree models' days, not a copy of the rule that could drift.
 - Final fit: find the number of epochs on val, then retrain from scratch on train+val (as the notebook does
-  for XGBoost) and score on test.
+  for XGBoost) and score on test. This is done for N_SEEDS copies with different seeds, and the reported
+  forecast is their average.
 - Baseline: naive = the value 7 rows earlier (the notebook's "naive (lag7)").
 - Inputs: same information as the tree models, but as a window of the last WINDOW rows.
 
@@ -33,28 +37,44 @@ import pandas as pd
 from sklearn.metrics import mean_absolute_error, mean_squared_error
 from sklearn.preprocessing import StandardScaler
 
+from src import forecast_pipeline as pipeline
 from src.config import SEED, set_global_seed
-from src.team_daily import load_team_daily
 
-TARGET = "kwh"
+DAILY_PATH = Path("data/household_daily.csv")   # written by src/build_daily.py
+TARGET = pipeline.TARGET
 # What the meter recorded on day s. Known at the end of day s, so safe inside a window that ends on s.
 MEASURES = ["kwh", "reactive_kvarh", "voltage", "intensity", "sub1_wh", "sub2_wh", "sub3_wh", "other_wh"]
 
 WINDOW = 14           # rows of history the LSTM sees
-WARMUP = 28           # the notebook's feature table starts at row 28 (28-day rolling mean); we score the same rows
-TEST_FRACTION = 0.2   # the latest 20% of rows is the test set
-VAL_FRACTION = 0.2    # the last 20% of the remaining 80% is for finding the epoch count
+# Train this many copies with seeds SEED, SEED+1, ... and average their forecasts. One copy's MAE moves by
+# about ±0.05-0.2 kWh with the seed alone; the average is steadier and was better on both val and test.
+N_SEEDS = 5
 
 PREDICTIONS_PATH = Path("results/lstm_test_predictions.csv")
 
 
-def team_split(target_rows: np.ndarray):
-    """Row positions of train / val / test, cut the same way as the notebook (cell 22)."""
-    n = len(target_rows)
-    n_trainval = int(n * (1 - TEST_FRACTION))
-    n_train = int(n_trainval * (1 - VAL_FRACTION))
-    train, val, test = target_rows[:n_train], target_rows[n_train:n_trainval], target_rows[n_trainval:]
+def load_daily(path: Path = DAILY_PATH) -> pd.DataFrame:
+    """The team's daily table from src/build_daily.py, indexed by date."""
+    if not path.exists():
+        raise FileNotFoundError(f"{path} not found. Build it first: "
+                                "python -m src.build_daily --raw data/household_power_consumption.txt")
+    daily = pipeline.load(path).set_index("date")
+    missing = [c for c in MEASURES if c not in daily.columns]
+    assert not missing, f"{path} isn't the team's daily table (no {missing}). Rebuild it with src/build_daily.py"
+    return daily
+
+
+def team_split(daily: pd.DataFrame):
+    """Row positions in `daily` of the pipeline's train / val / test days.
+
+    Calls the pipeline's own make_features and chrono_split rather than repeating the rule here, so
+    every model is scored on exactly the same days even if the pipeline's split changes.
+    """
+    feat = pipeline.make_features(daily.reset_index())
+    position = pd.Series(np.arange(len(daily)), index=daily.index)
+    train, val, test = (position.loc[part["date"]].to_numpy() for part in pipeline.chrono_split(feat))
     assert train.max() < val.min() and val.max() < test.min(), "splits overlap in time"
+    assert train.min() >= WINDOW, "not enough history before the first training day"
     return train, val, test
 
 
@@ -107,7 +127,7 @@ def check_features_use_no_future(daily: pd.DataFrame) -> None:
     cut = len(daily) // 2
     tampered = daily.copy()
     tampered.iloc[cut:, tampered.columns.get_indexer(MEASURES)] = -1.0
-    rows = np.arange(WARMUP, cut + 1)
+    rows = np.arange(WINDOW, cut + 1)
     before = make_windows(step_features(daily).to_numpy(), daily[TARGET].to_numpy(), rows)[0]
     after = make_windows(step_features(tampered).to_numpy(), tampered[TARGET].to_numpy(), rows)[0]
     np.testing.assert_array_equal(before, after)
@@ -121,14 +141,15 @@ def check_features_use_no_future(daily: pd.DataFrame) -> None:
 
 
 class LSTMForecaster:
-    def __init__(self, units: int = 32, dropout: float = 0.2, batch_size: int = 32):
+    def __init__(self, units: int = 32, dropout: float = 0.2, batch_size: int = 32, seed: int = SEED):
         self.units = units
         self.dropout = dropout
         self.batch_size = batch_size
+        self.seed = seed
         self.model = None
 
     def _build(self, input_shape):
-        set_global_seed(SEED)
+        set_global_seed(self.seed)
         model = keras.Sequential([
             keras.Input(shape=input_shape),
             keras.layers.LSTM(self.units),
@@ -181,34 +202,35 @@ def prepare(feats: pd.DataFrame, kwh: pd.Series, fit_last_row: int):
 
 
 def run(verbose: bool = True) -> dict:
-    daily = load_team_daily()
+    daily = load_daily()
     check_features_use_no_future(daily)
 
     feats = step_features(daily)
     kwh = daily[TARGET]
-    target_rows = np.arange(WARMUP, len(daily))
-    train_rows, val_rows, test_rows = team_split(target_rows)
+    train_rows, val_rows, test_rows = team_split(daily)
     if verbose:
         d = daily.index
         print(f"rows train {len(train_rows)} ({d[train_rows[0]].date()} to {d[train_rows[-1]].date()})  "
               f"val {len(val_rows)} (to {d[val_rows[-1]].date()})  "
               f"test {len(test_rows)} ({d[test_rows[0]].date()} to {d[test_rows[-1]].date()})")
 
-    # Stage 1: scalers see only the training period; validation picks the epoch count.
+    # Stage 1: scalers see only the training period; validation picks each copy's epoch count.
     fx, fy, _ = prepare(feats, kwh, fit_last_row=train_rows[-1])
     X_tr, y_tr = make_windows(fx, fy, train_rows)
     X_va, y_va = make_windows(fx, fy, val_rows)
-    epochs = LSTMForecaster().find_epochs(X_tr, y_tr, X_va, y_va)
+    seeds = [SEED + i for i in range(N_SEEDS)]
+    epochs = [LSTMForecaster(seed=s).find_epochs(X_tr, y_tr, X_va, y_va) for s in seeds]
 
-    # Stage 2: retrain on train+val for that many epochs, then score the untouched test rows.
+    # Stage 2: retrain each copy on train+val for its epoch count, then average their forecasts
+    # for the untouched test rows.
     trainval_rows = np.concatenate([train_rows, val_rows])
     fx, fy, y_scaler = prepare(feats, kwh, fit_last_row=val_rows[-1])
     X_fit, y_fit = make_windows(fx, fy, trainval_rows)
     X_te, _ = make_windows(fx, fy, test_rows)
-    model = LSTMForecaster().fit(X_fit, y_fit, epochs)
+    scaled_preds = [LSTMForecaster(seed=s).fit(X_fit, y_fit, e).predict(X_te) for s, e in zip(seeds, epochs)]
 
     y_true = kwh.to_numpy()[test_rows]
-    y_pred = y_scaler.inverse_transform(model.predict(X_te).reshape(-1, 1)).ravel()
+    y_pred = y_scaler.inverse_transform(np.mean(scaled_preds, axis=0).reshape(-1, 1)).ravel()
 
     naive = kwh.shift(7).to_numpy()[test_rows]        # the notebook's "naive (lag7)"
     yesterday = kwh.shift(1).to_numpy()[test_rows]
@@ -224,8 +246,8 @@ def run(verbose: bool = True) -> dict:
     result["gain_vs_naive"] = (1 - result["lstm"]["mae"] / result["naive"]["mae"]) * 100
 
     if verbose:
-        print(f"epochs chosen on val: {epochs}")
-        print("\nTest scores (same days as the notebook's models)")
+        print(f"{N_SEEDS} copies (seeds {seeds}), epochs chosen on val: {epochs}")
+        print("\nTest scores (same days as the pipeline's models)")
         for name, key in [("LSTM", "lstm"), ("naive (lag7)", "naive"), ("yesterday", "yesterday")]:
             s = result[key]
             print(f"{name:<14} MAE {s['mae']:6.3f}   RMSE {s['rmse']:6.3f}   MAPE {s['mape']:5.1f}%")

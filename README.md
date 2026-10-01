@@ -20,6 +20,42 @@ pip install -r requirements.txt
 
 Run the scripts as modules from the repo root, e.g. `python -m src.build_daily`.
 
+## Dashboard
+
+Shows every model's test-period forecasts against the actual kWh, daily or added up per month,
+with MAE / RMSE / MAPE and the gain over the seasonal naive baseline.
+
+```bash
+python -m src.build_daily --raw data/household_power_consumption.txt   # writes data/household_daily.csv
+python -m src.models.lstm        # writes results/lstm_test_predictions.csv
+python -m src.models.naive       # writes results/naive_test_predictions.csv
+python -m streamlit run src/dashboard.py
+```
+
+It opens in your browser at http://localhost:8501. Stop it with `Ctrl+C` in the terminal.
+
+### Adding your model
+
+Save your test predictions as `results/<model>_test_predictions.csv`, for example
+`results/xgboost_test_predictions.csv`, with exactly these columns:
+
+| Column | Meaning |
+|--------|---------|
+| `date` | Test day, `YYYY-MM-DD` |
+| `actual_kwh` | What the meter recorded that day (kWh) |
+| `<model>_kwh` | Your model's forecast for that day (kWh), e.g. `xgboost_kwh` |
+
+One row per test day. From the notebook, after fitting:
+
+```python
+pd.DataFrame({"date": te.date, "actual_kwh": yte, "xgboost_kwh": xgb.predict(Xte)}) \
+  .to_csv("results/xgboost_test_predictions.csv", index=False)
+```
+
+Refresh the page and the model appears. Every model must use the same test days and the same
+actual values (the team daily table and split). If yours doesn't, the dashboard shows a warning,
+because the scores wouldn't be comparable.
+
 ## Rules
 
 - `main` is protected. Every change goes through a pull request.
