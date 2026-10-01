@@ -1,10 +1,13 @@
 {
-  "source_url": "TODO",
-  "retrieval_date": "TODO (YYYY-MM-DD)",
-  "files": [
-    {
-      "name": "TODO",
-      "sha256": "TODO"
-    }
-  ]
+  "source": "UCI ML Repository - Individual household electric power consumption",
+  "source_url": "https://archive.ics.uci.edu/dataset/235/individual+household+electric+power+consumption",
+  "doi": "10.24432/C58K54",
+  "raw_sha256": "4259c9d7ece5dbee9ab8d53682baac68d791c864f0f64a52b4043cb3b90894b7",
+  "raw_rows": 2075259,
+  "daily_rows": 1418,
+  "date_from": "2006-12-17",
+  "date_to": "2010-11-25",
+  "min_coverage_rule": 0.9,
+  "days_dropped_partial": 24,
+  "seed": 42
 }
