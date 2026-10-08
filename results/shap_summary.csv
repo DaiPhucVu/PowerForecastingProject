@@ -1,0 +1,34 @@
+feature,plain_name,mean_abs_shap_kwh,max_abs_shap_kwh,direction_corr,direction
+other_wh_lag1,yesterday's unmetered load (residual),2.8281,7.3445,0.9227,higher raises the forecast
+doy_cos,time of year (cyclical),1.1242,2.7547,0.8531,higher raises the forecast
+dow,day of week,0.8219,2.1127,0.8543,higher raises the forecast
+roll_mean_7,average of the last 7 days,0.5724,1.8483,0.8815,higher raises the forecast
+lag_3,consumption three days ago,0.4803,1.233,0.8313,higher raises the forecast
+lag_1,yesterday's consumption,0.4037,2.3679,0.6163,higher raises the forecast
+sub2_wh_lag7,laundry circuit same day last week,0.339,2.1589,0.7826,higher raises the forecast
+lag_14,same day two weeks ago,0.3218,1.4039,0.7112,higher raises the forecast
+lag_7,same day last week,0.3033,0.9118,0.815,higher raises the forecast
+roll_mean_14,average of the last 14 days,0.2906,1.2035,0.2772,higher raises the forecast
+sub3_wh_lag7,water heater and A/C same day last week,0.2842,0.893,0.863,higher raises the forecast
+dow_sin,day of week (cyclical),0.2819,1.7162,-0.3762,higher lowers the forecast
+is_weekend,weekend or weekday,0.2537,0.8304,0.943,higher raises the forecast
+sub2_wh_lag1,yesterday's laundry circuit,0.2353,0.8157,-0.7265,higher lowers the forecast
+sub1_wh_lag1,yesterday's kitchen circuit,0.1763,0.585,0.6424,higher raises the forecast
+sub3_wh_lag1,yesterday's water heater and A/C,0.1729,1.209,0.5061,higher raises the forecast
+roll_std_14,volatility over the last 14 days,0.1524,1.0951,0.5813,higher raises the forecast
+roll_std_28,volatility over the last 28 days,0.1401,0.4967,0.478,higher raises the forecast
+lag_2,consumption two days ago,0.1264,0.3582,0.0219,mixed / not monotonic
+intensity_lag1,yesterday's mean current,0.1253,0.7077,0.4783,higher raises the forecast
+voltage_lag7,mean voltage same day last week,0.1243,2.1883,0.1657,mixed / not monotonic
+reactive_kvarh_lag1,yesterday's reactive energy,0.1115,0.3413,-0.3688,higher lowers the forecast
+dow_cos,day of week (cyclical),0.0878,0.248,0.3976,higher raises the forecast
+doy_sin,time of year (cyclical),0.0854,0.4075,-0.1476,mixed / not monotonic
+sub1_wh_lag7,kitchen circuit same day last week,0.0811,0.5472,-0.7267,higher lowers the forecast
+roll_std_7,volatility over the last 7 days,0.0784,0.6831,0.6265,higher raises the forecast
+reactive_kvarh_lag7,reactive energy same day last week,0.0784,0.416,-0.42,higher lowers the forecast
+roll_mean_28,average of the last 28 days,0.0773,0.7725,-0.0717,mixed / not monotonic
+voltage_lag1,yesterday's mean voltage,0.0761,0.7025,0.5679,higher raises the forecast
+other_wh_lag7,unmetered load same day last week,0.0758,0.2668,0.2705,higher raises the forecast
+doy,day of year,0.0617,0.35,-0.0057,mixed / not monotonic
+intensity_lag7,mean current same day last week,0.0516,0.4289,-0.4228,higher lowers the forecast
+month,month,0.0068,0.1233,-0.0349,mixed / not monotonic

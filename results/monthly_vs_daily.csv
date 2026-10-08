@@ -1,0 +1,3 @@
+level,unit,MAE,MAPE_%,n
+daily,kWh/day,3.986,18.2,278
+monthly,kWh/month,19.1,2.7,6

@@ -1,5 +1,5 @@
-model,MAE,RMSE,MAPE,vs_naive_%
-xgboost (94 trees),3.97,5.286,18.131,34.1
-random forest,4.103,5.35,19.41,31.9
-ridge,4.298,5.742,20.283,28.6
-naive (lag7),6.022,8.108,27.552,0.0
+model,MAE,RMSE,MAPE_%,MAE_vs_baseline_%
+XGBoost (n=101),3.986,5.296,18.201,33.8
+Random Forest,4.103,5.35,19.41,31.9
+Ridge regression,4.298,5.742,20.283,28.6
+Seasonal naive (lag 7),6.022,8.108,27.552,0.0

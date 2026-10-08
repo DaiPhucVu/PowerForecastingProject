@@ -1,0 +1,5 @@
+model,mean_MAE,std_MAE,worst_MAE,mean_MAPE,mean_vs_baseline,beat_baseline_%
+Random Forest,4.709,1.074,6.47,26.805,24.215,100.0
+XGBoost,4.727,0.974,6.354,27.817,23.653,100.0
+Ridge regression,4.734,0.894,5.995,25.055,23.525,100.0
+Seasonal naive (lag 7),6.164,0.906,7.495,27.841,0.0,0.0

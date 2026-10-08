@@ -1,0 +1,11 @@
+{
+  "data_file": "household_daily.csv",
+  "data_sha256_12": "aec3b4f59224",
+  "seed": 42,
+  "rows_after_features": 1390,
+  "train": 890,
+  "val": 222,
+  "test": 278,
+  "test_start": "2010-02-09",
+  "xgb_best_n_estimators": 101
+}
