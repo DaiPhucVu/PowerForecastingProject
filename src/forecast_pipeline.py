@@ -3,8 +3,10 @@ Features, chronological split, baseline + ML models, comparison table.
 
 Usage:  python forecast_pipeline.py --data data/household_daily.csv
 
-Writes results/comparison_table.csv, results/xgb_feature_importance.csv,
-results/run_metadata.json
+Writes results/<model>_test_predictions.csv for ridge, random_forest and xgboost
+(the shared format, see README, "Dashboard"), results/xgb_feature_importance.csv and
+results/pipeline_metadata.json. The comparison table across every model, including
+the LSTM, is built by src/evaluate.py.
 """
 import argparse, hashlib, json
 from pathlib import Path
@@ -112,13 +114,15 @@ def main(path, outdir):
     Xfull, yfull = pd.concat([Xtr, Xva]), pd.concat([ytr, yva])
 
     rows = [score("Seasonal naive (lag 7)", yte, test["lag_7"])]
+    predictions = {}
 
-    rows.append(score("Ridge regression", yte,
-                      Ridge(alpha=1.0).fit(Xfull, yfull).predict(Xte)))
+    predictions["ridge"] = Ridge(alpha=1.0).fit(Xfull, yfull).predict(Xte)
+    rows.append(score("Ridge regression", yte, predictions["ridge"]))
 
     rf = RandomForestRegressor(n_estimators=400, min_samples_leaf=2,
                                random_state=SEED, n_jobs=1).fit(Xfull, yfull)
-    rows.append(score("Random Forest", yte, rf.predict(Xte)))
+    predictions["random_forest"] = rf.predict(Xte)
+    rows.append(score("Random Forest", yte, predictions["random_forest"]))
 
     # pick n_estimators on the validation fold, then refit on train+val
     probe = XGBRegressor(n_estimators=2000, learning_rate=0.05, max_depth=4,
@@ -131,7 +135,8 @@ def main(path, outdir):
     xgb = XGBRegressor(n_estimators=best_n, learning_rate=0.05, max_depth=4,
                        subsample=0.8, colsample_bytree=0.8, reg_lambda=1.0,
                        random_state=SEED, n_jobs=1).fit(Xfull, yfull)
-    rows.append(score(f"XGBoost (n={best_n})", yte, xgb.predict(Xte)))
+    predictions["xgboost"] = xgb.predict(Xte)
+    rows.append(score(f"XGBoost (n={best_n})", yte, predictions["xgboost"]))
 
     res  = pd.DataFrame(rows).round(3)
     base = res.loc[0, "MAE"]
@@ -143,12 +148,14 @@ def main(path, outdir):
     print("=" * 68)
     print(res.to_string(index=False))
 
-    res.to_csv(outdir / "comparison_table.csv", index=False)
+    for model, pred in predictions.items():
+        pd.DataFrame({"date": test["date"], "actual_kwh": yte, f"{model}_kwh": pred}) \
+          .to_csv(outdir / f"{model}_test_predictions.csv", index=False)
     (pd.Series(xgb.feature_importances_, index=Xfull.columns)
        .sort_values(ascending=False).head(15).round(4)
        .to_csv(outdir / "xgb_feature_importance.csv", header=["importance"]))
 
-    (outdir / "run_metadata.json").write_text(json.dumps({
+    (outdir / "pipeline_metadata.json").write_text(json.dumps({
         "data_file": Path(path).name,
         "data_sha256_12": hashlib.sha256(Path(path).read_bytes()).hexdigest()[:12],
         "seed": SEED,
@@ -158,8 +165,9 @@ def main(path, outdir):
         "xgb_best_n_estimators": int(best_n),
     }, indent=2))
 
-    print(f"\nwrote -> {outdir}/comparison_table.csv, "
-          f"xgb_feature_importance.csv, run_metadata.json")
+    print(f"\nwrote -> {outdir}/" + ", ".join(f"{m}_test_predictions.csv" for m in predictions)
+          + ", xgb_feature_importance.csv, pipeline_metadata.json")
+    print("build the comparison table with: python -m src.evaluate")
     return res
 
 

@@ -4,9 +4,10 @@
 
 ```
 data/        manifest.json, data_dictionary.md (raw files are not committed)
-src/         build_daily.py, forecast_pipeline.py, evaluate.py, config.py
+src/         build_daily.py, forecast_pipeline.py, evaluate.py, config.py, dashboard.py
+src/models/  lstm.py, gru.py, naive.py
 notebooks/   exploration only, outputs cleared before committing
-results/     comparison_table.csv, run_metadata.json
+results/     <model>_test_predictions.csv, comparison_table.csv, run_metadata.json
 docs/        worklogs, report drafts
 ```
 
@@ -20,15 +21,29 @@ pip install -r requirements.txt
 
 Run the scripts as modules from the repo root, e.g. `python -m src.build_daily`.
 
-## Dashboard
+## Running everything
 
-Shows every model's test-period forecasts against the actual kWh, daily or added up per month,
-with MAE / RMSE / MAPE and the gain over the seasonal naive baseline.
+Download the raw file from the URL in `data/manifest.json`, extract `household_power_consumption.txt`
+into `data/`, and check its SHA-256 matches `raw_sha256`. Then, in order:
 
 ```bash
 python -m src.build_daily --raw data/household_power_consumption.txt   # writes data/household_daily.csv
+python -m src.forecast_pipeline --data data/household_daily.csv        # ridge, random_forest, xgboost predictions
 python -m src.models.lstm        # writes results/lstm_test_predictions.csv
+python -m src.models.gru         # writes results/gru_test_predictions.csv
 python -m src.models.naive       # writes results/naive_test_predictions.csv
+python -m src.evaluate           # writes results/comparison_table.csv and results/run_metadata.json
+```
+
+`build_daily` also rewrites `data/manifest.json` and `data/data_dictionary.md`. `evaluate` stops with
+an error if any model was scored on different days or actual values from the others.
+
+## Dashboard
+
+Shows every model's test-period forecasts against the actual kWh, daily or added up per month,
+with MAE / RMSE / MAPE and the gain over the seasonal naive baseline. Run the steps above first.
+
+```bash
 python -m streamlit run src/dashboard.py
 ```
 

@@ -1,0 +1,46 @@
+{
+  "data_file": "household_daily.csv",
+  "data_sha256_12": "4b18b466b804",
+  "seed": 42,
+  "test_days": 278,
+  "test_start": "2010-02-09",
+  "test_end": "2010-11-25",
+  "baseline": "naive",
+  "prediction_files": {
+    "gru": {
+      "file": "gru_test_predictions.csv",
+      "sha256_12": "ecb17710eee5"
+    },
+    "lstm": {
+      "file": "lstm_test_predictions.csv",
+      "sha256_12": "e12755d767f4"
+    },
+    "naive": {
+      "file": "naive_test_predictions.csv",
+      "sha256_12": "fb7dae7e77c1"
+    },
+    "random_forest": {
+      "file": "random_forest_test_predictions.csv",
+      "sha256_12": "846116eaecc5"
+    },
+    "ridge": {
+      "file": "ridge_test_predictions.csv",
+      "sha256_12": "4334a1c15dd5"
+    },
+    "xgboost": {
+      "file": "xgboost_test_predictions.csv",
+      "sha256_12": "b861c7ffdd34"
+    }
+  },
+  "pipeline": {
+    "data_file": "household_daily.csv",
+    "data_sha256_12": "4b18b466b804",
+    "seed": 42,
+    "rows_after_features": 1390,
+    "train": 890,
+    "val": 222,
+    "test": 278,
+    "test_start": "2010-02-09",
+    "xgb_best_n_estimators": 131
+  }
+}
