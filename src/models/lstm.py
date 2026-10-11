@@ -141,6 +141,9 @@ def check_features_use_no_future(daily: pd.DataFrame) -> None:
 
 
 class LSTMForecaster:
+    NAME = "LSTM"
+    LAYER = keras.layers.LSTM    # subclasses swap in another recurrent layer (see src/models/gru.py)
+
     def __init__(self, units: int = 32, dropout: float = 0.2, batch_size: int = 32, seed: int = SEED):
         self.units = units
         self.dropout = dropout
@@ -152,7 +155,7 @@ class LSTMForecaster:
         set_global_seed(self.seed)
         model = keras.Sequential([
             keras.Input(shape=input_shape),
-            keras.layers.LSTM(self.units),
+            self.LAYER(self.units),
             keras.layers.Dropout(self.dropout),
             keras.layers.Dense(1),
         ])
@@ -201,7 +204,8 @@ def prepare(feats: pd.DataFrame, kwh: pd.Series, fit_last_row: int):
     return scaled_x, scaled_y, y_scaler
 
 
-def run(verbose: bool = True) -> dict:
+def run(verbose: bool = True, forecaster: type[LSTMForecaster] = LSTMForecaster) -> dict:
+    name, key = forecaster.NAME, forecaster.NAME.lower()
     daily = load_daily()
     check_features_use_no_future(daily)
 
@@ -219,7 +223,7 @@ def run(verbose: bool = True) -> dict:
     X_tr, y_tr = make_windows(fx, fy, train_rows)
     X_va, y_va = make_windows(fx, fy, val_rows)
     seeds = [SEED + i for i in range(N_SEEDS)]
-    epochs = [LSTMForecaster(seed=s).find_epochs(X_tr, y_tr, X_va, y_va) for s in seeds]
+    epochs = [forecaster(seed=s).find_epochs(X_tr, y_tr, X_va, y_va) for s in seeds]
 
     # Stage 2: retrain each copy on train+val for its epoch count, then average their forecasts
     # for the untouched test rows.
@@ -227,7 +231,7 @@ def run(verbose: bool = True) -> dict:
     fx, fy, y_scaler = prepare(feats, kwh, fit_last_row=val_rows[-1])
     X_fit, y_fit = make_windows(fx, fy, trainval_rows)
     X_te, _ = make_windows(fx, fy, test_rows)
-    scaled_preds = [LSTMForecaster(seed=s).fit(X_fit, y_fit, e).predict(X_te) for s, e in zip(seeds, epochs)]
+    scaled_preds = [forecaster(seed=s).fit(X_fit, y_fit, e).predict(X_te) for s, e in zip(seeds, epochs)]
 
     y_true = kwh.to_numpy()[test_rows]
     y_pred = y_scaler.inverse_transform(np.mean(scaled_preds, axis=0).reshape(-1, 1)).ravel()
@@ -239,20 +243,20 @@ def run(verbose: bool = True) -> dict:
         "days": daily.index[test_rows],
         "actual": y_true,
         "predicted": y_pred,
-        "lstm": score(y_true, y_pred),
+        key: score(y_true, y_pred),
         "naive": score(y_true, naive),
         "yesterday": score(y_true, yesterday),
     }
-    result["gain_vs_naive"] = (1 - result["lstm"]["mae"] / result["naive"]["mae"]) * 100
+    result["gain_vs_naive"] = (1 - result[key]["mae"] / result["naive"]["mae"]) * 100
 
     if verbose:
         print(f"{N_SEEDS} copies (seeds {seeds}), epochs chosen on val: {epochs}")
         print("\nTest scores (same days as the pipeline's models)")
-        for name, key in [("LSTM", "lstm"), ("naive (lag7)", "naive"), ("yesterday", "yesterday")]:
-            s = result[key]
-            print(f"{name:<14} MAE {s['mae']:6.3f}   RMSE {s['rmse']:6.3f}   MAPE {s['mape']:5.1f}%")
-        print(f"LSTM MAE vs naive: {result['gain_vs_naive']:+.1f}% (target: at least 15% lower)")
-        print("\nMonthly roll-up of the LSTM's forecasts (complete months only)")
+        for label, k in [(name, key), ("naive (lag7)", "naive"), ("yesterday", "yesterday")]:
+            s = result[k]
+            print(f"{label:<14} MAE {s['mae']:6.3f}   RMSE {s['rmse']:6.3f}   MAPE {s['mape']:5.1f}%")
+        print(f"{name} MAE vs naive: {result['gain_vs_naive']:+.1f}% (target: at least 15% lower)")
+        print(f"\nMonthly roll-up of the {name}'s forecasts (complete months only)")
         print(monthly_rollup(result["days"], y_true, y_pred).round(1).to_string())
     return result
 
