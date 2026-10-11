@@ -119,6 +119,16 @@ def main(path, outdir):
     rf = RandomForestRegressor(n_estimators=400, min_samples_leaf=2,
                                random_state=SEED, n_jobs=1).fit(Xfull, yfull)
     rows.append(score("Random Forest", yte, rf.predict(Xte)))
+        # Random Forest feature importance
+    rf_importance = pd.DataFrame({
+        "feature": Xfull.columns,
+        "importance": rf.feature_importances_
+    }).sort_values("importance", ascending=False)
+
+    rf_importance.to_csv(
+        f"{outdir}/rf_feature_importance.csv",
+        index=False
+    )
 
     # pick n_estimators on the validation fold, then refit on train+val
     probe = XGBRegressor(n_estimators=2000, learning_rate=0.05, max_depth=4,
