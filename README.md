@@ -104,17 +104,23 @@ Both assertions run every time the pipeline executes. Splits are chronological
 ```
 ├── src/
 │   ├── build_daily.py          raw .txt → daily table + manifest + data dictionary
-│   └── forecast_pipeline.py    features → split → models → comparison table
-├── notebooks/
-│   └── household_energy_model.ipynb    Colab notebook, runs the whole thing end to end
+│   ├── forecast_pipeline.py    features → split → ridge / random forest / xgboost predictions
+│   ├── evaluate.py             scores every results/<model>_test_predictions.csv → comparison table
+│   ├── monthly_report.py       daily forecasts rolled up to months
+│   ├── rolling_validation.py   rolling-origin validation across several folds
+│   ├── explain.py              SHAP explanations of the XGBoost model
+│   ├── plot_rf_importance.py   Random Forest feature importance chart
+│   ├── dashboard.py            Streamlit dashboard
+│   ├── config.py               shared seed
+│   └── models/                 lstm.py, gru.py, naive.py
+├── tests/                      data pipeline, evaluation and leakage tests
+├── notebooks/                  Colab notebooks, run the whole thing end to end
 ├── data/
 │   ├── manifest.json           provenance: raw checksum, row counts, date range
 │   ├── data_dictionary.md      every column, its unit and its meaning
-│   └── household_daily.csv     generated, not committed
-├── results/
-│   ├── comparison_table.csv
-│   ├── xgb_feature_importance.csv
-│   └── feature_importance.png
+│   └── household_daily.csv     daily table built by build_daily.py
+├── results/                    <model>_test_predictions.csv, comparison_table.csv, run_metadata.json,
+│                               feature importance, monthly, rolling and SHAP outputs
 └── docs/                       specification, innovation report, weekly work logs
 ```
 
@@ -161,6 +167,32 @@ environment has changed and the table needs updating.
   validation across several folds is outstanding.
 - **No weather data.** Temperature is a known driver of household consumption and is not
   in this dataset. Lagged consumption absorbs some of it indirectly.
+
+## Running everything
+
+Download the raw file from the URL in `data/manifest.json`, extract `household_power_consumption.txt`
+into `data/`, and check its SHA-256 matches `raw_sha256`. Then, in order:
+
+```bash
+python -m src.build_daily --raw data/household_power_consumption.txt   # writes data/household_daily.csv
+python -m src.forecast_pipeline --data data/household_daily.csv        # ridge, random_forest, xgboost predictions
+python -m src.models.lstm        # writes results/lstm_test_predictions.csv
+python -m src.models.gru         # writes results/gru_test_predictions.csv
+python -m src.models.naive       # writes results/naive_test_predictions.csv
+python -m src.evaluate           # writes results/comparison_table.csv and results/run_metadata.json
+```
+
+`build_daily` also rewrites `data/manifest.json` and `data/data_dictionary.md`. `evaluate` stops with
+an error if any model was scored on different days or actual values from the others.
+
+## Dashboard
+
+Shows every model's test-period forecasts against the actual kWh, daily or added up per month,
+with MAE / RMSE / MAPE and the gain over the seasonal naive baseline. Run the steps above first.
+
+```bash
+python -m streamlit run src/dashboard.py
+```
 
 ## Status
 
