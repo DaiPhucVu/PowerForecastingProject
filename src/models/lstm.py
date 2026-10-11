@@ -231,7 +231,8 @@ def run(verbose: bool = True, forecaster: type[LSTMForecaster] = LSTMForecaster)
     fx, fy, y_scaler = prepare(feats, kwh, fit_last_row=val_rows[-1])
     X_fit, y_fit = make_windows(fx, fy, trainval_rows)
     X_te, _ = make_windows(fx, fy, test_rows)
-    scaled_preds = [forecaster(seed=s).fit(X_fit, y_fit, e).predict(X_te) for s, e in zip(seeds, epochs)]
+    copies = [forecaster(seed=s).fit(X_fit, y_fit, e) for s, e in zip(seeds, epochs)]
+    scaled_preds = [c.predict(X_te) for c in copies]
 
     y_true = kwh.to_numpy()[test_rows]
     y_pred = y_scaler.inverse_transform(np.mean(scaled_preds, axis=0).reshape(-1, 1)).ravel()
@@ -246,6 +247,12 @@ def run(verbose: bool = True, forecaster: type[LSTMForecaster] = LSTMForecaster)
         key: score(y_true, y_pred),
         "naive": score(y_true, naive),
         "yesterday": score(y_true, yesterday),
+        # What src/explain_lstm.py needs to explain the forecasts without retraining.
+        "models": [c.model for c in copies],
+        "y_scaler": y_scaler,
+        "X_fit": X_fit,
+        "X_test": X_te,
+        "feature_names": list(feats.columns),
     }
     result["gain_vs_naive"] = (1 - result[key]["mae"] / result["naive"]["mae"]) * 100
 

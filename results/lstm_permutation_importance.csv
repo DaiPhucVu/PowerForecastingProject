@@ -1,0 +1,12 @@
+input,plain_name,mae_increase_kwh,std_kwh
+time_of_year,time of year,0.7866,0.1877
+total_load,total load (kWh and current together),0.7423,0.1028
+sub3_wh,water heater and A/C,0.3971,0.0727
+day_of_week,day of week,0.3065,0.1074
+intensity,mean current,0.2926,0.077
+kwh,daily consumption (kWh),0.2662,0.0491
+sub1_wh,kitchen circuit,0.1346,0.0426
+other_wh,unmetered load (residual),0.0473,0.02
+reactive_kvarh,reactive energy,0.0355,0.024
+sub2_wh,laundry circuit,0.0127,0.0257
+voltage,mean voltage,0.0035,0.0115

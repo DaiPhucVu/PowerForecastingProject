@@ -109,6 +109,7 @@ Both assertions run every time the pipeline executes. Splits are chronological
 │   ├── monthly_report.py       daily forecasts rolled up to months
 │   ├── rolling_validation.py   rolling-origin validation across several folds
 │   ├── explain.py              SHAP explanations of the XGBoost model
+│   ├── explain_lstm.py         LSTM permutation importance, lookback and SHAP, compared with XGBoost
 │   ├── plot_rf_importance.py   Random Forest feature importance chart
 │   ├── dashboard.py            Streamlit dashboard
 │   ├── config.py               shared seed
@@ -180,19 +181,33 @@ python -m src.models.lstm        # writes results/lstm_test_predictions.csv
 python -m src.models.gru         # writes results/gru_test_predictions.csv
 python -m src.models.naive       # writes results/naive_test_predictions.csv
 python -m src.evaluate           # writes results/comparison_table.csv and results/run_metadata.json
+python -m src.explain_lstm       # writes results/lstm_drivers.md and the other lstm_* explainability files
 ```
+
+Run `python src/explain.py --data data/household_daily.csv` before `explain_lstm` if you want its XGBoost
+comparison: it reads `results/shap_summary.csv`.
 
 `build_daily` also rewrites `data/manifest.json` and `data/data_dictionary.md`. `evaluate` stops with
 an error if any model was scored on different days or actual values from the others.
 
 ## Dashboard
 
-Shows every model's test-period forecasts against the actual kWh, daily or added up per month,
-with MAE / RMSE / MAPE and the gain over the seasonal naive baseline. Run the steps above first.
+Two views, one for each persona in the Week 5 worklog. Switch in the sidebar, or link straight to
+one with `?view=household` or `?view=researcher`. Run the steps above first.
 
 ```bash
 python -m streamlit run src/dashboard.py
 ```
+
+- **Household** (Household Resident): a month's forecast in kWh and dollars at the user's own price,
+  what was actually used, and the few things that pushed the forecast up or down, in plain sentences
+  (US1–US3). It shows only the most accurate model and no metric names. The explanations come from
+  `results/lstm_shap_daily.csv`, written by `src.explain_lstm`.
+- **Researcher** (Researcher/Analyst): every model's forecasts against the actual kWh, daily or
+  monthly, with MAE / RMSE / MAPE and the gain over the seasonal naive baseline (US4), the
+  explainability output for the LSTM and XGBoost, and an export (US5, FR6). The export is a zip with
+  every prediction, the comparison scores and the attributions, plus a `manifest.json` holding a run
+  ID, the data checksum and a checksum for every file.
 
 ## Status
 
