@@ -1,80 +1,173 @@
 """
-Tests for the dashboard's logic (no browser): the household view's explanations must add up to the forecast
-it shows, and the researcher export must carry a stable run ID, the data version and every file.
-"""
-import io
-import json
-import zipfile
+Tests for the dashboard generator.
 
-import numpy as np
-import pandas as pd
+The Week 8 QA plan sets one acceptance criterion for the dashboard (feature F3):
+the scores it displays must match `comparison_table.csv` exactly. That is checked
+here rather than by eye, so it stays true after the next rebuild.
+"""
+import csv
+import json
+import re
+from pathlib import Path
+
 import pytest
 
-pytest.importorskip("streamlit")
-import dashboard as db
+import build_dashboard as bd
 
 
-def explanations(days: pd.DatetimeIndex, base=20.0, seed=0) -> pd.DataFrame:
-    """Per-day contributions in the shape of results/lstm_shap_daily.csv, already regrouped."""
-    rng = np.random.default_rng(seed)
-    out = pd.DataFrame({"date": days, "base_kwh": base, "unexplained_kwh": rng.normal(0, 0.05, len(days))})
-    for name in db.HOUSEHOLD_DRIVERS:
-        out[name] = rng.normal(0, 2, len(days))
-    out["predicted_kwh"] = out["base_kwh"] + out[list(db.HOUSEHOLD_DRIVERS)].sum(axis=1) + out["unexplained_kwh"]
-    return out
+@pytest.fixture
+def project(tmp_path):
+    """A minimal project tree with known numbers in it."""
+    (tmp_path / "results").mkdir()
+    (tmp_path / "data").mkdir()
+
+    def write(rel, rows):
+        with (tmp_path / rel).open("w", newline="") as f:
+            w = csv.DictWriter(f, fieldnames=list(rows[0]))
+            w.writeheader()
+            w.writerows(rows)
+
+    write("results/comparison_table.csv", [
+        {"model": "Seasonal naive (lag 7)", "MAE": 6.164, "RMSE": 7.91,
+         "MAPE_%": 27.84, "MAE_vs_baseline_%": 0.0},
+        {"model": "XGBoost", "MAE": 4.727, "RMSE": 6.02,
+         "MAPE_%": 27.82, "MAE_vs_baseline_%": 23.3},
+        {"model": "Ridge regression", "MAE": 4.734, "RMSE": 6.05,
+         "MAPE_%": 25.06, "MAE_vs_baseline_%": 23.2},
+    ])
+    write("results/rolling_folds.csv", [
+        {"fold": f, "model": m, "MAE": v}
+        for f in (1, 2) for m, v in (("XGBoost", 4.7), ("Ridge regression", 4.8))
+    ])
+    write("results/rolling_summary.csv", [
+        {"model": "XGBoost", "mean_MAE": 4.727, "std_MAE": 0.974,
+         "worst_MAE": 6.354, "mean_MAPE": 27.8, "mean_vs_baseline": 23.6,
+         "beat_baseline_%": 100.0},
+        {"model": "Ridge regression", "mean_MAE": 4.734, "std_MAE": 0.894,
+         "worst_MAE": 5.995, "mean_MAPE": 25.1, "mean_vs_baseline": 23.5,
+         "beat_baseline_%": 100.0},
+    ])
+    write("results/ablation.csv", [
+        {"feature_set": "all features", "n_features": 33, "dropped": 0,
+         "mean_MAE": 4.727, "std_MAE": 0.974, "mean_MAPE": 27.8,
+         "MAE_change": 0.0, "MAE_change_%": 0.0},
+        {"feature_set": "no residual lags", "n_features": 31, "dropped": 2,
+         "mean_MAE": 4.810, "std_MAE": 1.095, "mean_MAPE": 28.5,
+         "MAE_change": 0.082, "MAE_change_%": 1.74},
+    ])
+    (tmp_path / "data" / "manifest.json").write_text(json.dumps({
+        "daily_rows": 1418, "raw_rows": 2075259,
+        "date_from": "2006-12-16", "date_to": "2010-11-02",
+        "min_coverage_rule": 0.9, "raw_sha256": "a" * 64,
+    }))
+    return tmp_path
 
 
-def test_month_drivers_add_up_to_the_month_forecast():
-    expl = explanations(pd.date_range("2010-03-01", "2010-04-30"))
-    typical, pushes = db.month_drivers(expl, pd.Timestamp("2010-03-01"))
-    march = expl[expl["date"].dt.month == 3]
-    assert typical == pytest.approx(20.0 * 31)
-    assert typical + pushes.sum() + march["unexplained_kwh"].sum() == pytest.approx(march["predicted_kwh"].sum())
-    assert list(pushes.abs()) == sorted(pushes.abs(), reverse=True)     # biggest reason first
+def build(root):
+    out = Path(root) / "results" / "dashboard.html"
+    bd.main(str(root), str(out))
+    return out.read_text()
 
 
-def test_month_drivers_refuses_an_incomplete_month():
-    expl = explanations(pd.date_range("2010-03-01", "2010-03-20"))
-    assert db.month_drivers(expl, pd.Timestamp("2010-03-01")) is None
+# ------------------------------------------- the QA plan's F3 criterion
+
+def test_displayed_scores_match_the_comparison_table(project):
+    """F3: 'MAE, RMSE, MAPE match the table exactly.' Every number in
+    comparison_table.csv must appear in the rendered page."""
+    page = build(project)
+
+    with (project / "results" / "comparison_table.csv").open() as f:
+        rows = list(csv.DictReader(f))
+
+    for r in rows:
+        assert r["model"] in page, f"{r['model']} missing from the dashboard"
+        for col in ("MAE", "RMSE", "MAPE_%"):
+            shown = f"{float(r[col]):,.3f}"
+            assert shown in page, \
+                f"{r['model']} {col}={shown} not displayed on the dashboard"
 
 
-def test_household_drivers_cover_every_lstm_input_group_once():
-    lstm_groups = ["kwh", "intensity", "reactive_kvarh", "voltage", "sub1_wh", "sub2_wh", "sub3_wh", "other_wh",
-                   "day_of_week", "time_of_year"]
-    members = [c for cols in db.HOUSEHOLD_DRIVERS.values() for c in cols]
-    assert sorted(members) == sorted(lstm_groups)
+def test_best_model_tile_is_not_the_baseline(project):
+    """The headline tile must report the best LEARNED model, never the
+    seasonal-naive baseline, even if the baseline sorted first."""
+    page = build(project)
+    tile = page.split('Best single-split MAE')[0][-400:]
+    assert "4.73" in tile          # tiles round to 2dp; the table keeps 3
+    assert "6.16" not in tile
 
 
-def prediction_table():
-    days = pd.date_range("2010-02-01", periods=60, name="date")
-    actual = 20 + np.sin(np.arange(60))
-    return pd.DataFrame({"date": days, "actual": actual, "naive": actual + 3, "lstm": actual + 0.5}), ["naive", "lstm"]
+def test_improvement_against_baseline_is_computed_correctly(project):
+    page = build(project)
+    expected = (6.164 - 4.727) / 6.164 * 100      # 23.3%
+    assert f"{expected:,.1f}" in page
 
 
-def test_best_model_ignores_the_baseline():
-    table, models = prediction_table()
-    assert db.best_model(table, models) == "lstm"
+# ------------------------------------------------------- graceful degradation
+
+def test_builds_with_nothing_but_an_empty_tree(tmp_path):
+    """A dashboard built before any script has run must still open, and say
+    which command produces each missing piece."""
+    page = build(tmp_path)
+    assert "<html" in page and "</html>" in page
+    assert "not yet generated" in page
+    assert "src/forecast_pipeline.py" in page
 
 
-def test_export_bundle_has_manifest_files_and_a_stable_run_id(tmp_path, monkeypatch):
-    table, models = prediction_table()
-    for m in models:
-        table[["date", "actual", m]].rename(columns={"actual": "actual_kwh", m: f"{m}_kwh"}) \
-            .to_csv(tmp_path / f"{m}_test_predictions.csv", index=False)
-    (tmp_path / "run_metadata.json").write_text(json.dumps({"data_file": "household_daily.csv",
-                                                            "data_sha256_12": "abc123def456"}))
-    monkeypatch.setattr(db, "RESULTS_DIR", tmp_path)
+def test_missing_forecast_does_not_break_the_page(project):
+    page = build(project)                   # no forecast.csv in the fixture
+    assert "src/predict.py" in page
+    assert "Model comparison" in page       # the rest still rendered
 
-    bundle, manifest = db.export_bundle(table, models)
-    names = zipfile.ZipFile(io.BytesIO(bundle)).namelist()
-    assert {"manifest.json", "comparison_scores.csv", "all_test_predictions.csv",
-            "predictions/lstm_test_predictions.csv", "predictions/naive_test_predictions.csv"} <= set(names)
-    assert manifest["data_sha256_12"] == "abc123def456"
-    assert set(manifest["files"]) == set(names) - {"manifest.json"}
 
-    _, again = db.export_bundle(table, models)
-    assert again["run_id"] == manifest["run_id"]                    # same results, same ID
+# ------------------------------------------------------------- correctness
 
-    (tmp_path / "lstm_test_predictions.csv").write_text("date,actual_kwh,lstm_kwh\n2010-02-01,1,2\n")
-    _, changed = db.export_bundle(table, models)
-    assert changed["run_id"] != manifest["run_id"]                  # changed results, new ID
+def test_every_chart_has_a_table_beneath_it(project):
+    """Three light-mode series sit below 3:1 contrast, so the palette's relief
+    rule applies: the values must also be readable as text."""
+    page = build(project)
+    assert page.count("<table>") >= 3
+
+
+def test_page_is_self_contained(project):
+    """No external scripts, stylesheets or images - it has to open from a file
+    on a machine with no internet."""
+    page = build(project)
+    assert "<script" not in page.lower()
+    assert "http://" not in page
+    assert not re.search(r'<link[^>]+stylesheet', page, re.I)
+    assert not re.search(r'<img\b', page, re.I)
+
+
+def test_dark_mode_is_defined_under_both_scopes(project):
+    page = build(project)
+    assert "prefers-color-scheme:dark" in page.replace(" ", "")
+    assert '[data-theme=dark]' in page.replace('"', "")
+
+
+def test_marks_carry_hover_titles(project):
+    page = build(project)
+    assert page.count("<title>") >= 5
+
+
+def test_text_is_escaped(tmp_path):
+    (tmp_path / "results").mkdir()
+    with (tmp_path / "results" / "comparison_table.csv").open("w",
+                                                             newline="") as f:
+        w = csv.DictWriter(f, fieldnames=["model", "MAE", "RMSE", "MAPE_%"])
+        w.writeheader()
+        w.writerow({"model": "<script>x</script>", "MAE": 1.0,
+                    "RMSE": 1.0, "MAPE_%": 1.0})
+    page = build(tmp_path)
+    assert "<script>" not in page
+    assert "&lt;script&gt;" in page
+
+
+def test_rounded_bar_only_rounds_the_data_end():
+    """A bar rounded at both ends detaches visually from its baseline."""
+    d = bd.rounded_bar(0, 0, 100, 20, r=4, horizontal=True)
+    assert d.startswith("M0,0")        # square at the baseline
+    assert d.count("A4,4") == 2        # two arcs, both at the far end
+
+
+def test_zero_width_bar_renders_nothing():
+    assert bd.rounded_bar(0, 0, 0, 20) == ""
